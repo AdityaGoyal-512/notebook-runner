@@ -1,139 +1,252 @@
-"use client"
+'use client';
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Loader2, Play, CheckCircle, XCircle } from "lucide-react"
+import React, { useRef, useState } from 'react';
 
-interface NotebookResult {
-  success: boolean
-  output: string
-  error?: string
-}
+// Set this to your HuggingFace Space backend URL
+const API_BASE = 'https://aditya203-notebook-runner-backend.hf.space';
 
-export default function NotebookRunner() {
-  const [notebook1Result, setNotebook1Result] = useState<NotebookResult | null>(null)
-  const [notebook2Result, setNotebook2Result] = useState<NotebookResult | null>(null)
-  const [loading1, setLoading1] = useState(false)
-  const [loading2, setLoading2] = useState(false)
+type Notebook = 1 | 2;
 
-  const runNotebook = async (notebookNumber: 1 | 2) => {
-    const setLoading = notebookNumber === 1 ? setLoading1 : setLoading2
-    const setResult = notebookNumber === 1 ? setNotebook1Result : setNotebook2Result
+export default function Page() {
+  const [notebook, setNotebook] = useState<Notebook | null>(null);
+  const [inputMode, setInputMode] = useState<'pdf' | 'url'>('pdf');
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [url, setUrl] = useState('');
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [transcribedText, setTranscribedText] = useState('');
+  const [finalResponse, setFinalResponse] = useState('');
+  const [sources, setSources] = useState<string[]>([]);
+  const [audioReplyUrl, setAudioReplyUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
-    setLoading(true)
-    setResult(null)
+  // Start recording
+  const startRecording = async () => {
+    setTranscribedText('');
+    setFinalResponse('');
+    setSources([]);
+    setAudioReplyUrl(null);
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const recorder = new MediaRecorder(stream);
+    const chunks: BlobPart[] = [];
+    recorder.ondataavailable = (e) => chunks.push(e.data);
+    recorder.onstop = () => {
+      const blob = new Blob(chunks, { type: 'audio/webm' });
+      setAudioBlob(blob);
+    };
+    recorder.start();
+    setMediaRecorder(recorder);
+    setIsRecording(true);
+  };
+
+  // Stop recording
+  const stopRecording = () => {
+    if (mediaRecorder) {
+      mediaRecorder.stop();
+      setIsRecording(false);
+    }
+  };
+
+  // Handle submit
+  const handleSubmit = async () => {
+    if (!notebook) {
+      alert('Please select a notebook.');
+      return;
+    }
+    if (inputMode === 'pdf' && !pdfFile) {
+      alert('Please upload a PDF file.');
+      return;
+    }
+    if (inputMode === 'url' && !url) {
+      alert('Please enter a URL.');
+      return;
+    }
+    if (!audioBlob) {
+      alert('Please record your question.');
+      return;
+    }
+
+    setLoading(true);
+    setTranscribedText('');
+    setFinalResponse('');
+    setSources([]);
+    setAudioReplyUrl(null);
+
+    const formData = new FormData();
+    formData.append('input_mode', inputMode);
+    if (inputMode === 'pdf' && pdfFile) formData.append('pdf', pdfFile);
+    if (inputMode === 'url') formData.append('url', url);
+    // Convert audio to .wav or .mp3 as needed
+    const audioFile = new File([audioBlob], notebook === 1 ? 'audio.wav' : 'audio.mp3', {
+      type: notebook === 1 ? 'audio/wav' : 'audio/mp3',
+    });
+    formData.append('audio', audioFile);
+
+    const endpoint =
+      notebook === 1 ? '/api/run-notebook-1' : '/api/run-notebook-2';
 
     try {
-      const response = await fetch(`/api/run-notebook-${notebookNumber}`, {
-        method: "POST",
-      })
-
-      const result = await response.json()
-      setResult(result)
-    } catch (error) {
-      setResult({
-        success: false,
-        output: "",
-        error: "Failed to execute notebook",
-      })
-    } finally {
-      setLoading(false)
+      const res = await fetch(API_BASE + endpoint, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.error) {
+        alert(data.error);
+        setLoading(false);
+        return;
+      }
+      setTranscribedText(data.transcribed_text || '');
+      setFinalResponse(data.final_response || '');
+      setSources(data.sources || []);
+      // Fetch and play audio reply if available
+      if (data.audio_reply_path) {
+        // Try to fetch the audio file from backend
+        const audioUrl = API_BASE + '/static/' + data.audio_reply_path.replace(/^.*[\\/]/, '');
+        setAudioReplyUrl(audioUrl);
+      }
+    } catch (err) {
+      alert('Error communicating with backend.');
     }
-  }
-
-  const renderOutput = (result: NotebookResult | null, loading: boolean) => {
-    if (loading) {
-      return (
-        <div className="flex items-center justify-center p-8 text-muted-foreground">
-          <Loader2 className="h-6 w-6 animate-spin mr-2" />
-          Executing notebook...
-        </div>
-      )
-    }
-
-    if (!result) return null
-
-    return (
-      <div className="mt-4">
-        <div className={`flex items-center mb-2 ${result.success ? "text-green-600" : "text-red-600"}`}>
-          {result.success ? <CheckCircle className="h-5 w-5 mr-2" /> : <XCircle className="h-5 w-5 mr-2" />}
-          <span className="font-medium">
-            {result.success ? "Execution completed successfully" : "Execution failed"}
-          </span>
-        </div>
-        <Card>
-          <CardContent className="p-4">
-            <pre className="whitespace-pre-wrap text-sm font-mono bg-gray-50 p-3 rounded border overflow-x-auto">
-              {result.error || result.output || "No output"}
-            </pre>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
+    setLoading(false);
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">Notebook Runner</h1>
-          <p className="text-lg text-gray-600">Execute Python notebooks and view their output in real-time</p>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-8">
-          {/* Notebook 1 */}
-          <Card className="shadow-lg">
-            <CardHeader className="text-center">
-              <CardTitle className="text-2xl">Data Analysis Notebook</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Button
-                onClick={() => runNotebook(1)}
-                disabled={loading1}
-                size="lg"
-                className="w-full h-16 text-lg font-semibold"
-              >
-                {loading1 ? <Loader2 className="h-6 w-6 animate-spin mr-2" /> : <Play className="h-6 w-6 mr-2" />}
-                Run Notebook 1
-              </Button>
-              {renderOutput(notebook1Result, loading1)}
-            </CardContent>
-          </Card>
-
-          {/* Notebook 2 */}
-          <Card className="shadow-lg">
-            <CardHeader className="text-center">
-              <CardTitle className="text-2xl">Machine Learning Notebook</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Button
-                onClick={() => runNotebook(2)}
-                disabled={loading2}
-                size="lg"
-                className="w-full h-16 text-lg font-semibold"
-                variant="secondary"
-              >
-                {loading2 ? <Loader2 className="h-6 w-6 animate-spin mr-2" /> : <Play className="h-6 w-6 mr-2" />}
-                Run Notebook 2
-              </Button>
-              {renderOutput(notebook2Result, loading2)}
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="mt-12 text-center">
-          <Card className="bg-white/50 backdrop-blur">
-            <CardContent className="p-6">
-              <h3 className="text-lg font-semibold mb-2">How it works</h3>
-              <p className="text-gray-600">
-                Click either button to execute the corresponding Python notebook on the server. The output will be
-                displayed below each button in real-time.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
+    <div style={{ maxWidth: 600, margin: '40px auto', fontFamily: 'sans-serif' }}>
+      <h2>Notebook Runner</h2>
+      <div style={{ marginBottom: 16 }}>
+        <button
+          onClick={() => setNotebook(1)}
+          style={{
+            background: notebook === 1 ? '#0070f3' : '#eee',
+            color: notebook === 1 ? '#fff' : '#000',
+            marginRight: 8,
+            padding: '8px 16px',
+            border: 'none',
+            borderRadius: 4,
+            cursor: 'pointer',
+          }}
+        >
+          Enable Notebook 1
+        </button>
+        <button
+          onClick={() => setNotebook(2)}
+          style={{
+            background: notebook === 2 ? '#0070f3' : '#eee',
+            color: notebook === 2 ? '#fff' : '#000',
+            padding: '8px 16px',
+            border: 'none',
+            borderRadius: 4,
+            cursor: 'pointer',
+          }}
+        >
+          Enable Notebook 2
+        </button>
       </div>
+      <div style={{ marginBottom: 16 }}>
+        <label>
+          <input
+            type="radio"
+            checked={inputMode === 'pdf'}
+            onChange={() => setInputMode('pdf')}
+          />
+          PDF
+        </label>
+        <label style={{ marginLeft: 16 }}>
+          <input
+            type="radio"
+            checked={inputMode === 'url'}
+            onChange={() => setInputMode('url')}
+          />
+          URL
+        </label>
+      </div>
+      {inputMode === 'pdf' ? (
+        <div style={{ marginBottom: 16 }}>
+          <input
+            type="file"
+            accept="application/pdf"
+            onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
+          />
+        </div>
+      ) : (
+        <div style={{ marginBottom: 16 }}>
+          <input
+            type="text"
+            placeholder="Enter URL"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            style={{ width: '100%', padding: 8 }}
+          />
+        </div>
+      )}
+      <div style={{ marginBottom: 16 }}>
+        {!isRecording ? (
+          <button onClick={startRecording} style={{ padding: '8px 16px' }}>
+            Start Recording
+          </button>
+        ) : (
+          <button onClick={stopRecording} style={{ padding: '8px 16px', background: '#f33', color: '#fff' }}>
+            Stop Recording
+          </button>
+        )}
+        {audioBlob && (
+          <audio
+            controls
+            src={URL.createObjectURL(audioBlob)}
+            style={{ display: 'block', marginTop: 8 }}
+          />
+        )}
+      </div>
+      <div>
+        <button
+          onClick={handleSubmit}
+          disabled={loading}
+          style={{
+            padding: '10px 24px',
+            background: '#28a745',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 4,
+            cursor: 'pointer',
+            fontWeight: 'bold',
+          }}
+        >
+          {loading ? 'Processing...' : 'Submit'}
+        </button>
+      </div>
+      <hr style={{ margin: '32px 0' }} />
+      {transcribedText && (
+        <div>
+          <strong>Transcribed Text:</strong>
+          <div style={{ background: '#f6f8fa', padding: 8, borderRadius: 4 }}>{transcribedText}</div>
+        </div>
+      )}
+      {finalResponse && (
+        <div style={{ marginTop: 16 }}>
+          <strong>Final Response:</strong>
+          <div style={{ background: '#f6f8fa', padding: 8, borderRadius: 4 }}>{finalResponse}</div>
+        </div>
+      )}
+      {sources.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <strong>Sources:</strong>
+          <ul>
+            {sources.map((src, i) => (
+              <li key={i}>{src}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {audioReplyUrl && (
+        <div style={{ marginTop: 16 }}>
+          <strong>Audio Reply:</strong>
+          <audio ref={audioRef} controls src={audioReplyUrl} />
+        </div>
+      )}
     </div>
-  )
+  );
 }
