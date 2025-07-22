@@ -3,7 +3,7 @@
 import React, { useRef, useState } from 'react';
 
 // Set this to your HuggingFace Space backend URL
-const API_BASE = 'https://huggingface.co/spaces/Aditya203/backend_final';
+const API_BASE = 'https://aditya203-backend_final.hf.space';
 
 type Notebook = 1 | 2;
 
