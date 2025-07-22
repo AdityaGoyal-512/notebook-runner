@@ -9,6 +9,8 @@ type Notebook = 1 | 2;
 
 export default function Page() {
   const [notebook, setNotebook] = useState<Notebook | null>(null);
+
+  // For Notebook 1
   const [inputMode, setInputMode] = useState<'pdf' | 'url'>('pdf');
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [url, setUrl] = useState('');
@@ -21,6 +23,10 @@ export default function Page() {
   const [audioReplyUrl, setAudioReplyUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
+
+  // For Notebook 2 (ngrok link)
+  const [ngrokUrl, setNgrokUrl] = useState<string | null>(null);
+  const [ngrokLoading, setNgrokLoading] = useState(false);
 
   // Start recording
   const startRecording = async () => {
@@ -50,12 +56,9 @@ export default function Page() {
     }
   };
 
-  // Handle submit
+  // Handle submit for Notebook 1
   const handleSubmit = async () => {
-    if (!notebook) {
-      alert('Please select a notebook.');
-      return;
-    }
+    if (notebook !== 1) return;
     if (inputMode === 'pdf' && !pdfFile) {
       alert('Please upload a PDF file.');
       return;
@@ -79,17 +82,11 @@ export default function Page() {
     formData.append('input_mode', inputMode);
     if (inputMode === 'pdf' && pdfFile) formData.append('pdf', pdfFile);
     if (inputMode === 'url') formData.append('url', url);
-    // Convert audio to .wav or .mp3 as needed
-    const audioFile = new File([audioBlob], notebook === 1 ? 'audio.wav' : 'audio.mp3', {
-      type: notebook === 1 ? 'audio/wav' : 'audio/mp3',
-    });
+    const audioFile = new File([audioBlob], 'audio.wav', { type: 'audio/wav' });
     formData.append('audio', audioFile);
 
-    const endpoint =
-      notebook === 1 ? '/api/run-notebook-1' : '/api/run-notebook-2';
-
     try {
-      const res = await fetch(API_BASE + endpoint, {
+      const res = await fetch(API_BASE + '/api/run-notebook-1', {
         method: 'POST',
         body: formData,
       });
@@ -102,9 +99,7 @@ export default function Page() {
       setTranscribedText(data.transcribed_text || '');
       setFinalResponse(data.final_response || '');
       setSources(data.sources || []);
-      // Fetch and play audio reply if available
       if (data.audio_reply_path) {
-        // Try to fetch the audio file from backend
         const audioUrl = API_BASE + '/static/' + data.audio_reply_path.replace(/^.*[\\/]/, '');
         setAudioReplyUrl(audioUrl);
       }
@@ -112,6 +107,20 @@ export default function Page() {
       alert('Error communicating with backend.');
     }
     setLoading(false);
+  };
+
+  // Fetch ngrok URL for Notebook 2
+  const fetchNgrokUrl = async () => {
+    setNgrokLoading(true);
+    setNgrokUrl(null);
+    try {
+      const res = await fetch(API_BASE + '/ngrok-url');
+      const data = await res.json();
+      setNgrokUrl(data.ngrok_url);
+    } catch (err) {
+      alert('Could not fetch ngrok URL from backend.');
+    }
+    setNgrokLoading(false);
   };
 
   return (
@@ -133,7 +142,10 @@ export default function Page() {
           Enable Notebook 1
         </button>
         <button
-          onClick={() => setNotebook(2)}
+          onClick={() => {
+            setNotebook(2);
+            fetchNgrokUrl();
+          }}
           style={{
             background: notebook === 2 ? '#0070f3' : '#eee',
             color: notebook === 2 ? '#fff' : '#000',
@@ -146,105 +158,160 @@ export default function Page() {
           Enable Notebook 2
         </button>
       </div>
-      <div style={{ marginBottom: 16 }}>
-        <label>
-          <input
-            type="radio"
-            checked={inputMode === 'pdf'}
-            onChange={() => setInputMode('pdf')}
-          />
-          PDF
-        </label>
-        <label style={{ marginLeft: 16 }}>
-          <input
-            type="radio"
-            checked={inputMode === 'url'}
-            onChange={() => setInputMode('url')}
-          />
-          URL
-        </label>
-      </div>
-      {inputMode === 'pdf' ? (
-        <div style={{ marginBottom: 16 }}>
-          <input
-            type="file"
-            accept="application/pdf"
-            onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
-          />
-        </div>
-      ) : (
-        <div style={{ marginBottom: 16 }}>
-          <input
-            type="text"
-            placeholder="Enter URL"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            style={{ width: '100%', padding: 8 }}
-          />
-        </div>
+
+      {/* Notebook 1 UI */}
+      {notebook === 1 && (
+        <>
+          <div style={{ marginBottom: 16 }}>
+            <label>
+              <input
+                type="radio"
+                checked={inputMode === 'pdf'}
+                onChange={() => setInputMode('pdf')}
+              />
+              PDF
+            </label>
+            <label style={{ marginLeft: 16 }}>
+              <input
+                type="radio"
+                checked={inputMode === 'url'}
+                onChange={() => setInputMode('url')}
+              />
+              URL
+            </label>
+          </div>
+          {inputMode === 'pdf' ? (
+            <div style={{ marginBottom: 16 }}>
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
+              />
+            </div>
+          ) : (
+            <div style={{ marginBottom: 16 }}>
+              <input
+                type="text"
+                placeholder="Enter URL"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                style={{ width: '100%', padding: 8 }}
+              />
+            </div>
+          )}
+          <div style={{ marginBottom: 16 }}>
+            {!isRecording ? (
+              <button onClick={startRecording} style={{ padding: '8px 16px' }}>
+                Start Recording
+              </button>
+            ) : (
+              <button onClick={stopRecording} style={{ padding: '8px 16px', background: '#f33', color: '#fff' }}>
+                Stop Recording
+              </button>
+            )}
+            {audioBlob && (
+              <audio
+                controls
+                src={URL.createObjectURL(audioBlob)}
+                style={{ display: 'block', marginTop: 8 }}
+              />
+            )}
+          </div>
+          <div>
+            <button
+              onClick={handleSubmit}
+              disabled={loading}
+              style={{
+                padding: '10px 24px',
+                background: '#28a745',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 4,
+                cursor: 'pointer',
+                fontWeight: 'bold',
+              }}
+            >
+              {loading ? 'Processing...' : 'Submit'}
+            </button>
+          </div>
+          <hr style={{ margin: '32px 0' }} />
+          {transcribedText && (
+            <div>
+              <strong>Transcribed Text:</strong>
+              <div style={{ background: '#f6f8fa', padding: 8, borderRadius: 4 }}>{transcribedText}</div>
+            </div>
+          )}
+          {finalResponse && (
+            <div style={{ marginTop: 16 }}>
+              <strong>Final Response:</strong>
+              <div style={{ background: '#f6f8fa', padding: 8, borderRadius: 4 }}>{finalResponse}</div>
+            </div>
+          )}
+          {sources.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <strong>Sources:</strong>
+              <ul>
+                {sources.map((src, i) => (
+                  <li key={i}>{src}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {audioReplyUrl && (
+            <div style={{ marginTop: 16 }}>
+              <strong>Audio Reply:</strong>
+              <audio ref={audioRef} controls src={audioReplyUrl} />
+            </div>
+          )}
+        </>
       )}
-      <div style={{ marginBottom: 16 }}>
-        {!isRecording ? (
-          <button onClick={startRecording} style={{ padding: '8px 16px' }}>
-            Start Recording
+
+      {/* Notebook 2 UI */}
+      {notebook === 2 && (
+        <div style={{ marginTop: 32 }}>
+          <h3>Notebook 2: Outbound Call Q&A</h3>
+          <p>
+            All Q&A happens on the phone call. Click the button below to get your call session link.
+          </p>
+          <button
+            onClick={fetchNgrokUrl}
+            disabled={ngrokLoading}
+            style={{
+              padding: '10px 24px',
+              background: '#0070f3',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 4,
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              marginBottom: 16,
+            }}
+          >
+            {ngrokLoading ? 'Fetching Link...' : 'Get Call Link'}
           </button>
-        ) : (
-          <button onClick={stopRecording} style={{ padding: '8px 16px', background: '#f33', color: '#fff' }}>
-            Stop Recording
-          </button>
-        )}
-        {audioBlob && (
-          <audio
-            controls
-            src={URL.createObjectURL(audioBlob)}
-            style={{ display: 'block', marginTop: 8 }}
-          />
-        )}
-      </div>
-      <div>
-        <button
-          onClick={handleSubmit}
-          disabled={loading}
-          style={{
-            padding: '10px 24px',
-            background: '#28a745',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 4,
-            cursor: 'pointer',
-            fontWeight: 'bold',
-          }}
-        >
-          {loading ? 'Processing...' : 'Submit'}
-        </button>
-      </div>
-      <hr style={{ margin: '32px 0' }} />
-      {transcribedText && (
-        <div>
-          <strong>Transcribed Text:</strong>
-          <div style={{ background: '#f6f8fa', padding: 8, borderRadius: 4 }}>{transcribedText}</div>
-        </div>
-      )}
-      {finalResponse && (
-        <div style={{ marginTop: 16 }}>
-          <strong>Final Response:</strong>
-          <div style={{ background: '#f6f8fa', padding: 8, borderRadius: 4 }}>{finalResponse}</div>
-        </div>
-      )}
-      {sources.length > 0 && (
-        <div style={{ marginTop: 16 }}>
-          <strong>Sources:</strong>
-          <ul>
-            {sources.map((src, i) => (
-              <li key={i}>{src}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {audioReplyUrl && (
-        <div style={{ marginTop: 16 }}>
-          <strong>Audio Reply:</strong>
-          <audio ref={audioRef} controls src={audioReplyUrl} />
+          {ngrokUrl && (
+            <div style={{ marginTop: 16 }}>
+              <a
+                href={ngrokUrl + '/call'}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'inline-block',
+                  padding: '10px 24px',
+                  background: '#28a745',
+                  color: '#fff',
+                  borderRadius: 4,
+                  textDecoration: 'none',
+                  fontWeight: 'bold',
+                }}
+              >
+                Start Call Session
+              </a>
+              <div style={{ marginTop: 8, fontSize: 12, color: '#555' }}>
+                (This will open a new page to enter your phone number and knowledge base)
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
