@@ -90,6 +90,7 @@ export default function Page() {
       notebook === 1 ? '/api/run-notebook-1' : '/api/run-notebook-2';
 
     try {
+      alert('About to send request!');
       const res = await fetch(API_BASE + endpoint, {
         method: 'POST',
         body: formData,
