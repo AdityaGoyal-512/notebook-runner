@@ -52,6 +52,7 @@ export default function Page() {
 
   // Handle submit
   const handleSubmit = async () => {
+    alert('Submit clicked!');
     if (!notebook) {
       alert('Please select a notebook.');
       return;
