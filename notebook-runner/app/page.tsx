@@ -81,9 +81,10 @@ export default function Page() {
     if (inputMode === 'pdf' && pdfFile) formData.append('pdf', pdfFile);
     if (inputMode === 'url') formData.append('url', url);
     // Convert audio to .wav or .mp3 as needed
-    const audioFile = new File([audioBlob], notebook === 1 ? 'audio.wav' : 'audio.mp3', {
-      type: notebook === 1 ? 'audio/wav' : 'audio/mp3',
+    const audioFile = new File([audioBlob], 'audio.webm', {
+      type: 'audio/webm',
     });
+
     formData.append('audio', audioFile);
 
     const endpoint =
